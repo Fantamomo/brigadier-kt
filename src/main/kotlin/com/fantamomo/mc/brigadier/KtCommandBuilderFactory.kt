@@ -1,6 +1,9 @@
 package com.fantamomo.mc.brigadier
 
 import com.mojang.brigadier.arguments.ArgumentType
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.InvocationKind
+import kotlin.contracts.contract
 
 /**
  * Adds a literal subcommand to the current command builder.
@@ -15,7 +18,9 @@ import com.mojang.brigadier.arguments.ArgumentType
  * @author Fantamomo
  * @since 1.0-SNAPSHOT
  */
+@OptIn(ExperimentalContracts::class)
 fun <S> KtCommandBuilder<S, *>.literal(literal: String, block: KtLiteralCommandBuilder<S>.() -> Unit) {
+    contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
     val literalBuilder = KtLiteralCommandBuilder<S>(literal)
     literalBuilder.block()
     builder.then(literalBuilder.build())
@@ -35,7 +40,9 @@ fun <S> KtCommandBuilder<S, *>.literal(literal: String, block: KtLiteralCommandB
  * @author Fantamomo
  * @since 1.0-SNAPSHOT
  */
+@OptIn(ExperimentalContracts::class)
 fun <S, T> KtCommandBuilder<S, *>.argument(name: String, type: ArgumentType<T>, block: KtArgumentCommandBuilder<S, T>.() -> Unit) {
+    contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
     val argumentBuilder = KtArgumentCommandBuilder<S, T>(name, type)
     argumentBuilder.block()
     builder.then(argumentBuilder.build())
