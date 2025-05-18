@@ -53,7 +53,7 @@ fun <T : Any> CommandContext<*>.arg(kclass: KClass<T>, name: String): T =
  */
 fun <T : Any> CommandContext<*>.optionalArg(kclass: KClass<T>, name: String): T? = try {
     arg(kclass, name)
-} catch (e: IllegalArgumentException) {
+} catch (_: IllegalArgumentException) {
     null
 }
 
