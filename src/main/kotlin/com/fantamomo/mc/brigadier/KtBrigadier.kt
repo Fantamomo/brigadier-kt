@@ -1,6 +1,9 @@
 package com.fantamomo.mc.brigadier
 
 import com.mojang.brigadier.tree.CommandNode
+ import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.InvocationKind
+import kotlin.contracts.contract
 
 /**
  * Creates a `CommandNode` for a literal command using the specified literal string and a configuration block.
@@ -15,7 +18,9 @@ import com.mojang.brigadier.tree.CommandNode
  * @author Fantamomo
  * @since 1.0-SNAPSHOT
  */
+@OptIn(ExperimentalContracts::class)
 fun <S> command(literal: String, block: KtLiteralCommandBuilder<S>.() -> Unit): CommandNode<S> {
+    contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
     val builder = KtLiteralCommandBuilder<S>(literal)
     builder.block()
     return builder.build()
