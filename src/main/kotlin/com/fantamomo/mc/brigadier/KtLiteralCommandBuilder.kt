@@ -1,6 +1,7 @@
 package com.fantamomo.mc.brigadier
 
 import com.mojang.brigadier.builder.LiteralArgumentBuilder
+import com.mojang.brigadier.tree.LiteralCommandNode
 
 /**
  * A command builder specifically designed for creating literal commands.
@@ -18,4 +19,6 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder
  */
 class KtLiteralCommandBuilder<S>(literal: String) : KtCommandBuilder<S, LiteralArgumentBuilder<S>>() {
     override val builder: LiteralArgumentBuilder<S> = LiteralArgumentBuilder.literal(literal)
+
+    override fun build(): LiteralCommandNode<S> = builder.build()
 }
