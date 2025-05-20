@@ -45,5 +45,5 @@ abstract class KtCommandBuilder<S, B : ArgumentBuilder<S, B>> {
      *
      * @return the constructed `CommandNode` representing the command structure.
      */
-    fun build(): CommandNode<S> = builder.build()
+    open fun build(): CommandNode<S> = builder.build()
 }
