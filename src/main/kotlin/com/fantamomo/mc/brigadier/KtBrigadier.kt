@@ -1,7 +1,7 @@
 package com.fantamomo.mc.brigadier
 
-import com.mojang.brigadier.tree.CommandNode
- import kotlin.contracts.ExperimentalContracts
+import com.mojang.brigadier.tree.LiteralCommandNode
+import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
 
@@ -19,7 +19,7 @@ import kotlin.contracts.contract
  * @since 1.0-SNAPSHOT
  */
 @OptIn(ExperimentalContracts::class)
-fun <S> command(literal: String, block: KtLiteralCommandBuilder<S>.() -> Unit): CommandNode<S> {
+fun <S> command(literal: String, block: KtLiteralCommandBuilder<S>.() -> Unit): LiteralCommandNode<S> {
     contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
     val builder = KtLiteralCommandBuilder<S>(literal)
     builder.block()
