@@ -1,6 +1,8 @@
 package com.fantamomo.mc.brigadier
 
 import com.mojang.brigadier.arguments.ArgumentType
+import com.mojang.brigadier.builder.LiteralArgumentBuilder
+import com.mojang.brigadier.context.CommandContext
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
@@ -24,6 +26,12 @@ fun <S> KtCommandBuilder<S, *>.literal(literal: String, block: KtLiteralCommandB
     val literalBuilder = KtLiteralCommandBuilder<S>(literal)
     literalBuilder.block()
     builder.then(literalBuilder.build())
+}
+
+fun <S> KtCommandBuilder<S, *>.literalExecute(literal: String, block: @KtCommandDsl CommandContext<S>.() -> Int) {
+    val builder = LiteralArgumentBuilder.literal<S>(literal)
+    builder.executes(block)
+    this.builder.then(builder.build())
 }
 
 /**
