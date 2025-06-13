@@ -15,7 +15,7 @@ import kotlin.contracts.contract
  *
  * @param literal The exact text or phrase that the command should match.
  * @param block A DSL configuration block used to specify the command's behavior and structure.
- * @return The constructed `CommandNode` representing the configured literal command.
+ * @return The constructed `LiteralArgumentBuilder` representing the builder. This builder ist internal used to create the command.
  * @author Fantamomo
  * @since 1.0-SNAPSHOT
  */
