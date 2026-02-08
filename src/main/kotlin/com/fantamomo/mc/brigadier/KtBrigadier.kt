@@ -20,7 +20,7 @@ import kotlin.contracts.contract
  * @since 1.0-SNAPSHOT
  */
 @OptIn(ExperimentalContracts::class)
-fun <S> command(literal: String, block: KtLiteralCommandBuilder<S>.() -> Unit): LiteralArgumentBuilder<S> {
+inline fun <S> command(literal: String, block: KtLiteralCommandBuilder<S>.() -> Unit): LiteralArgumentBuilder<S> {
     contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
     val builder = KtLiteralCommandBuilder<S>(literal)
     builder.block()

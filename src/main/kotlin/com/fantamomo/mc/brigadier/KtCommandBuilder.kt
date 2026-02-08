@@ -35,6 +35,7 @@ abstract class KtCommandBuilder<S, B : ArgumentBuilder<S, B>> {
      * Subclasses should override this property to provide the appropriate `ArgumentBuilder`
      * implementation, enabling the DSL-style definitions for commands.
      */
+    @PublishedApi
     internal abstract val builder: B
 
     /**

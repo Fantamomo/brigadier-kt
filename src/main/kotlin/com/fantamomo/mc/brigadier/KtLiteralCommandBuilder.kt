@@ -18,6 +18,7 @@ import com.mojang.brigadier.tree.LiteralCommandNode
  * @since 1.0-SNAPSHOT
  */
 class KtLiteralCommandBuilder<S>(literal: String) : KtCommandBuilder<S, LiteralArgumentBuilder<S>>() {
+    @PublishedApi
     override val builder: LiteralArgumentBuilder<S> = LiteralArgumentBuilder.literal(literal)
 
     override fun build(): LiteralCommandNode<S> = builder.build()
