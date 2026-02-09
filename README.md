@@ -25,6 +25,7 @@ Kotlin-native command framework.
     - [Understanding Guards](#understanding-guards)
     - [Basic Guard Usage](#basic-guard-usage)
     - [Argument Transformation](#argument-transformation)
+    - [Disabling Guards](#disabling-guards)
     - [Mutable Command Context](#mutable-command-context)
 - [Advanced Features](#advanced-features)
     - [Suggestions DSL](#suggestions-dsl)
@@ -461,6 +462,117 @@ argument("group", StringArgumentType.word()) {
 - ✅ Error handling is unified
 - ✅ Performance improved (single lookup)
 - ✅ Easy to modify validation rules
+
+---
+
+### Disabling Guards
+
+Now consider extending the existing structure with a new subcommand:
+
+```
+/group <group> create
+```
+
+This command should create a new group using the provided name.
+
+---
+
+#### The Problem
+
+Because the `<group>` argument already has a Guard attached (which:
+
+* resolves the `String` to a `Group`
+* aborts if the group does not exist
+* injects the resolved `Group` object
+
+), that Guard will also execute for `create`.
+
+If we natively add:
+
+```kotlin
+literal("create") {
+    execute {
+        val name = arg<String>("group")
+        groupService.create(name)
+        println("Created group: $name")
+        SINGLE_SUCCESS
+    }
+}
+```
+
+the Guard will run first.
+
+Since the group does **not exist yet**, the Guard will:
+
+```kotlin
+println("Group not found: $name")
+abort(NO_SUCCESS)
+```
+
+Execution never reaches the `create` block.
+
+---
+
+#### The Solution: Disable Guards for This Subtree
+
+kt-brigadier allows you to explicitly disable the Guard pipeline for a specific execution block:
+
+```kotlin
+literal("create") {
+    execute(false) {
+        val name = arg<String>("group")
+        groupService.create(name)
+        println("Created group: $name")
+        SINGLE_SUCCESS
+    }
+}
+```
+
+Passing `false` to `execute(...)` means:
+
+* Parent Guards will not run
+* No validation is performed
+* No argument transformation occurs
+* Execution starts immediately after parsing
+
+This isolates the `create` command from the existing middleware logic.
+
+---
+
+#### Important Consequence
+
+Because the Guard is skipped:
+
+* The `String → Group` transformation does not happen
+* No injected `Group` object is available
+* Only the originally parsed value exists
+
+Therefore you must access the raw argument:
+
+```kotlin
+val name = arg<String>("group")
+```
+
+You **cannot** do:
+
+```kotlin
+arg<Group>("group")
+```
+
+because no `Group` was injected into the context.
+
+---
+
+#### When to Disable Guards
+
+Disabling Guards is appropriate when:
+
+* A command intentionally contradicts parent validation
+* A creation/bootstrap command must bypass existence checks
+* You need raw parsed values
+* You want full manual control over execution
+
+---
 
 ### Mutable Command Context
 
