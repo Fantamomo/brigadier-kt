@@ -3,19 +3,28 @@ package com.fantamomo.mc.brigadier
 import com.mojang.brigadier.context.CommandContext
 
 /**
- * Defines the command execution behavior.
+ * Registers the execution logic for this command node.
  *
- * Registers the provided block of code as the action to be executed
- * when the command is invoked. The block operates within the context
- * of the command source and returns an integer result.
+ * Before invoking the provided [block], all guards in the
+ * current execution path are executed.
  *
- * @param block A lambda representing the command's execution logic.
- *              It is a DSL block operating in the scope of
- *              `CommandContext<S>` and returns an integer value
- *              typically representing the command's result code.
+ * If a guard returns [GuardResult.Abort], execution stops and the
+ * provided result code is returned to Brigadier.
+ *
+ * If all guards return [GuardResult.Continue], the execution block
+ * is invoked.
+ *
+ * @param block The command execution logic.
+ *
  * @author Fantamomo
  * @since 1.0-SNAPSHOT
  */
 fun <S> KtCommandBuilder<S, *>.execute(block: @KtCommandDsl CommandContext<S>.() -> Int) {
-    builder.executes(block)
+    val guards = guards
+    builder.executes { ctx ->
+        val context = KtCommandContext.of(ctx)
+        val result = guards.execute(context)
+        if (result is GuardResult.Abort) return@executes result.result
+        block(context)
+    }
 }
