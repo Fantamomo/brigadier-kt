@@ -79,11 +79,11 @@ class KtCommandContext<S>(
 
     @Suppress("UNCHECKED_CAST")
     override fun <V> getArgument(name: String, clazz: Class<V>): V {
-        val overridden = overriddenArgs[name]
-        return when (overridden) {
+        return when (val overridden = overriddenArgs[name]) {
             NULL -> null as V
             REMOVED -> throw IllegalArgumentException("Argument '$name' has been removed from the context")
-            else -> super.getArgument(name, clazz)
+            null -> super.getArgument(name, clazz)
+            else -> overridden as V
         }
     }
 
@@ -170,7 +170,7 @@ val CommandContext<*>.NO_SUCCESS: Int get() = 0
  * @since 1.0-SNAPSHOT
  */
 fun <T : Any> CommandContext<*>.arg(kclass: KClass<T>, name: String): T =
-    this.getArgument(name, kclass.javaPrimitiveType ?: kclass.java)
+    this.getArgument(name, kclass.java)
 
 /**
  * Retrieves an optional argument of the specified type and name from the command context.
