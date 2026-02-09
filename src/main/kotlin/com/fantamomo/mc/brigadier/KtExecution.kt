@@ -22,6 +22,7 @@ import com.mojang.brigadier.context.CommandContext
 fun <S> KtCommandBuilder<S, *>.execute(block: @KtCommandDsl CommandContext<S>.() -> Int) {
     val guards = guards
     builder.executes { ctx ->
+        if (!guards.hasCustomGuard()) return@executes block(ctx)
         val context = KtCommandContext.of(ctx)
         val result = guards.execute(context)
         if (result is GuardResult.Abort) return@executes result.result

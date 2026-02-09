@@ -84,4 +84,23 @@ sealed interface GuardList<S> {
     } else {
         GuardResult.Continue
     }
+
+    /**
+     * Determines if the current guard chain contains any custom-defined guard.
+     *
+     * A custom guard is any guard that is not the default no-op guard provided by [KtCommandGuard.default].
+     *
+     * @return `true` if a custom guard exists in the chain; `false` otherwise.
+     */
+    fun hasCustomGuard(): Boolean = hasCustomGuard(this)
+
+    companion object {
+        private tailrec fun hasCustomGuard(ref: GuardList<*>): Boolean {
+            if (ref.value !== KtCommandGuard.default<Any?>()) return true
+            return when (ref) {
+                is First -> false
+                is Next -> hasCustomGuard(ref.previous)
+            }
+        }
+    }
 }
