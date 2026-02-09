@@ -1,5 +1,6 @@
 package com.fantamomo.mc.brigadier
 
+import com.fantamomo.mc.brigadier.internal.GuardList
 import com.mojang.brigadier.builder.ArgumentBuilder
 import com.mojang.brigadier.tree.CommandNode
 
@@ -23,6 +24,10 @@ import com.mojang.brigadier.tree.CommandNode
  */
 @KtCommandDsl
 abstract class KtCommandBuilder<S, B : ArgumentBuilder<S, B>> {
+
+    @PublishedApi
+    internal abstract val guards: GuardList<S>
+
     /**
      * Represents the underlying `ArgumentBuilder` associated with a command builder instance.
      *

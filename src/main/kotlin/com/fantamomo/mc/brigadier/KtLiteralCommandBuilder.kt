@@ -1,5 +1,6 @@
 package com.fantamomo.mc.brigadier
 
+import com.fantamomo.mc.brigadier.internal.GuardList
 import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import com.mojang.brigadier.tree.LiteralCommandNode
 
@@ -17,7 +18,10 @@ import com.mojang.brigadier.tree.LiteralCommandNode
  * @author Fantamomo
  * @since 1.0-SNAPSHOT
  */
-class KtLiteralCommandBuilder<S>(literal: String) : KtCommandBuilder<S, LiteralArgumentBuilder<S>>() {
+class KtLiteralCommandBuilder<S>(
+    literal: String,
+    override val guards: GuardList<S>
+) : KtCommandBuilder<S, LiteralArgumentBuilder<S>>() {
     @PublishedApi
     override val builder: LiteralArgumentBuilder<S> = LiteralArgumentBuilder.literal(literal)
 
