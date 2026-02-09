@@ -1,7 +1,6 @@
 package com.fantamomo.mc.brigadier
 
 import com.mojang.brigadier.arguments.ArgumentType
-import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import com.mojang.brigadier.context.CommandContext
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
@@ -28,10 +27,23 @@ inline fun <S> KtCommandBuilder<S, *>.literal(literal: String, block: KtLiteralC
     builder.then(literalBuilder.build())
 }
 
-fun <S> KtCommandBuilder<S, *>.literalExecute(literal: String, block: @KtCommandDsl CommandContext<S>.() -> Int) {
-    val builder = LiteralArgumentBuilder.literal<S>(literal)
-    builder.executes(block)
-    this.builder.then(builder.build())
+/**
+ * Adds a literal subcommand to the current command builder with execution logic.
+ *
+ * This method allows defining a literal subcommand with a specific text that must be matched
+ * in the command context. Additionally, it registers execution logic for the subcommand,
+ * which is executed when the command is invoked. Optionally, guards can be run before execution.
+ *
+ * @param literal The exact text of the literal subcommand to be matched.
+ * @param runGuards Whether to run guards before executing the subcommand's logic. Defaults to `true`.
+ * @param block The execution logic to be invoked when the literal subcommand is executed.
+ *              This block receives the command context for customized logic and returns
+ *              an integer result used by Brigadier.
+ * @author Fantamomo
+ * @since 1.0-SNAPSHOT
+ */
+fun <S> KtCommandBuilder<S, *>.literalExecute(literal: String, runGuards: Boolean = true, block: @KtCommandDsl CommandContext<S>.() -> Int) {
+    literal(literal) { execute(runGuards, block) }
 }
 
 /**
