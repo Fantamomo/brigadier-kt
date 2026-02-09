@@ -23,7 +23,7 @@ import kotlin.contracts.contract
 @OptIn(ExperimentalContracts::class)
 inline fun <S> KtCommandBuilder<S, *>.literal(literal: String, block: KtLiteralCommandBuilder<S>.() -> Unit) {
     contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
-    val literalBuilder = KtLiteralCommandBuilder<S>(literal)
+    val literalBuilder = KtLiteralCommandBuilder(literal, guards.next())
     literalBuilder.block()
     builder.then(literalBuilder.build())
 }
@@ -51,7 +51,7 @@ fun <S> KtCommandBuilder<S, *>.literalExecute(literal: String, block: @KtCommand
 @OptIn(ExperimentalContracts::class)
 inline fun <S, T> KtCommandBuilder<S, *>.argument(name: String, type: ArgumentType<T>, block: KtArgumentCommandBuilder<S, T>.() -> Unit) {
     contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
-    val argumentBuilder = KtArgumentCommandBuilder<S, T>(name, type)
+    val argumentBuilder = KtArgumentCommandBuilder(name, type, guards.next())
     argumentBuilder.block()
     builder.then(argumentBuilder.build())
 }

@@ -1,5 +1,6 @@
 package com.fantamomo.mc.brigadier
 
+import com.fantamomo.mc.brigadier.internal.GuardList
 import com.mojang.brigadier.arguments.ArgumentType
 import com.mojang.brigadier.builder.RequiredArgumentBuilder
 
@@ -21,6 +22,10 @@ import com.mojang.brigadier.builder.RequiredArgumentBuilder
  * @author Fantamomo
  * @since 1.0-SNAPSHOT
  */
-class KtArgumentCommandBuilder<S, T>(name: String, type: ArgumentType<T>) : KtCommandBuilder<S, RequiredArgumentBuilder<S, T>>() {
+class KtArgumentCommandBuilder<S, T>(
+    name: String,
+    type: ArgumentType<T>,
+    override val guards: GuardList<S>
+) : KtCommandBuilder<S, RequiredArgumentBuilder<S, T>>() {
     override val builder: RequiredArgumentBuilder<S, T> = RequiredArgumentBuilder.argument(name, type)
 }
