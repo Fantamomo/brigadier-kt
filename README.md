@@ -27,6 +27,13 @@ Kotlin-native command framework.
     - [Argument Transformation](#argument-transformation)
     - [Disabling Guards](#disabling-guards)
     - [Mutable Command Context](#mutable-command-context)
+- [Redirect, Fork and Forward](#redirect-fork-and-forward)
+    - [Understanding Redirects](#understanding-redirects)
+    - [Node Merging: The Self-Reference Pattern](#node-merging-the-self-reference-pattern)
+    - [redirect](#redirect)
+    - [fork](#fork)
+    - [forward](#forward)
+    - [Guards and Redirects](#guards-and-redirects)
 - [Advanced Features](#advanced-features)
     - [Suggestions DSL](#suggestions-dsl)
     - [Access Control: requires vs Guards](#access-control-requires-vs-guards)
@@ -87,6 +94,7 @@ brigadier-kt provides:
 - **Argument References** — Strongly typed, reusable argument bindings
 - **Transformation Pipeline** — Convert parsed strings to domain objects
 - **Mutable Context** — Safe argument injection and override system
+- **Redirect / Fork / Forward** — Full support for Brigadier's node routing system
 - **Suggestions DSL** — Simplified suggestion handling
 - **Full Brigadier Compatibility** — Drop-in enhancement, not a replacement
 
@@ -309,12 +317,12 @@ the argument, as it avoids repeating the string key and keeps the type contract 
 
 #### Comparison
 
-| Feature                        | `argRef()`              | `createArgRef<T>(name)`      |
-|--------------------------------|-------------------------|------------------------------|
-| Bound to current argument node | ✓                       | ✗ (explicit name)            |
-| Type inferred from context     | ✓ (raw parsed type)     | ✗ (you specify type)         |
-| Supports transformed types     | ✗                       | ✓                            |
-| Mutable (`ref.set(...)`)       | ✗                       | ✓                            |
+| Feature                        | `argRef()`              | `createArgRef<T>(name)`       |
+|--------------------------------|-------------------------|-------------------------------|
+| Bound to current argument node | ✓                       | ✗ (explicit name)             |
+| Type inferred from context     | ✓ (raw parsed type)     | ✗ (you specify type)          |
+| Supports transformed types     | ✗                       | ✓                             |
+| Mutable (`ref.set(...)`)       | ✗                       | ✓                             |
 | Use case                       | Raw parsed value access | Domain object after transform |
 
 ---
@@ -715,10 +723,10 @@ resetArgument(name: String)
 Both `setArgument(name, value)` and `ref.set(value)` write to the same underlying mutable context and produce
 identical results. The difference is stylistic:
 
-| Approach              | When to use                                                     |
-|-----------------------|-----------------------------------------------------------------|
-| `setArgument(name, value)` | Quick one-off injection, no prior `createArgRef` declared  |
-| `ref.set(value)`      | You already have a `createArgRef` — keeps the key out of strings |
+| Approach                   | When to use                                                      |
+|----------------------------|------------------------------------------------------------------|
+| `setArgument(name, value)` | Quick one-off injection, no prior `createArgRef` declared        |
+| `ref.set(value)`           | You already have a `createArgRef` — keeps the key out of strings |
 
 Prefer `ref.set(...)` in transformation-heavy Guards where a `createArgRef` is already in scope, as it ties the write
 directly to the typed reference and avoids repeating magic strings.
@@ -743,6 +751,318 @@ execute {
 
 This enables safe, predictable transformation pipelines.
 Of course, you should use `IntegerArgumentType` instead of `StringArgumentType` for numeric arguments.
+
+---
+
+## Redirect, Fork and Forward
+
+Brigadier's node system supports more than simple linear command trees. Using redirects and forks, a node can point
+execution to an entirely different part of the tree — enabling patterns like looping chains, context modifiers, and
+conditional branching. brigadier-kt exposes all three of Brigadier's routing mechanisms as clean DSL functions.
+
+### Understanding Redirects
+
+In a standard command tree, parsing always moves forward: each node consumes a token and descends into a child.
+A **redirect** breaks this rule — after a node is parsed, instead of looking for children on that node, Brigadier
+jumps to the children of a completely different **target node** and continues parsing from there.
+
+This is how Minecraft's `/execute as <target> run <command>` works: after resolving `<target>`, execution doesn't
+stop — it loops back to the `execute` node's children so more subcommands can follow.
+
+There are three variants:
+
+- **`redirect`** — Routes to a target node, optionally transforming the source (1 source → 1 source)
+- **`fork`** — Routes to a target node, producing multiple sources (1 source → n sources)
+- **`forward`** — Low-level combined routing with explicit fork control
+
+---
+
+### Node Merging: The Self-Reference Pattern
+
+A redirect needs a reference to a `CommandNode` as its target. This is straightforward when redirecting to an
+unrelated node. However, a common and important pattern requires a node to **redirect back to itself** — for example,
+so that after processing one modifier, the full modifier chain can be used again.
+
+The challenge is that a node does not exist yet while its DSL block is being defined. brigadier-kt solves this using
+Brigadier's own **node merging** behavior.
+
+When `dispatcher.register(node)` is called, the following happens internally:
+
+```java
+// CommandDispatcher.register:
+public LiteralCommandNode<S> register(final LiteralArgumentBuilder<S> command) {
+    final LiteralCommandNode<S> build = command.build();
+    root.addChild(build);
+    return build;
+}
+
+// CommandNode.addChild — merges if a node with the same name already exists:
+final CommandNode<S> child = children.get(node.getName());
+if (child != null) {
+    // Merge: adopt all children from the new node onto the existing one
+    for (final CommandNode<S> grandchild : node.getChildren()) {
+        child.addChild(grandchild);
+    }
+} else {
+    children.put(node.getName(), node);
+}
+// some code lines where removed
+```
+
+This means you can register the same command name **twice**. The first registration returns the node reference
+immediately; the second registration merges its children onto the already-existing node. The reference obtained from
+the first registration stays valid and can safely be used as a redirect target inside the second registration.
+
+**Pattern:**
+
+```kotlin
+// Step 1: Register an empty shell to obtain the node reference
+val executeNode = dispatcher.register(
+    command<CommandSourceStack>("execute") {
+        requires { hasPermission(LEVEL_GAMEMASTERS) }
+        // if you want to use requires, 
+        // you MUST put it here in the first registration.
+        // If you put it in the second registration, 
+        // it will not be merged and so no permission check will be performed.
+    }
+)
+
+// Step 2: Register the full tree — children are merged onto the existing node.
+// executeNode is now a valid redirect target.
+dispatcher.register(
+    command<CommandSourceStack>("execute") {
+        requires { hasPermission(LEVEL_GAMEMASTERS) }
+
+        literal("run") {
+            redirect(dispatcher.root) // redirect to the dispatcher root
+        }
+
+        literal("as") {
+            argument("targets", EntityArgument.entities()) {
+                fork(executeNode) {          // redirect back to execute's children
+                    val targets = ...
+                    targets.map { context.source.withEntity(it) }
+                }
+            }
+        }
+    }
+)
+```
+
+This is the same technique Minecraft itself uses — the first `dispatcher.register(Commands.literal("execute")...)`
+call in `ExecuteCommand.register` exists solely to capture the node reference before the full tree is built.
+
+---
+
+### redirect
+
+`redirect` routes execution to a target node after the current node is parsed. It accepts an optional
+`SingleRedirectModifier` — a lambda that receives the current context and returns a **single** transformed source.
+If no modifier is given, the source is forwarded unchanged.
+
+```kotlin
+fun <S> KtCommandBuilder<S, *>.redirect(target: CommandNode<S>, modifier: SingleRedirectModifier<S>? = null)
+```
+
+#### Simple Redirect — No Transformation
+
+The most basic use: after this node is parsed, continue with the children of `target` using the same source.
+
+```kotlin
+literal("run") {
+    redirect(dispatcher.root) // /execute run <any command>
+}
+```
+
+#### Redirect with Source Transformation
+
+The modifier receives the current `CommandContext` and returns a **new source**. Parsing then continues at `target`
+using that new source. This is how context modifiers like `positioned`, `rotated`, or `in` work.
+
+```kotlin
+literal("positioned") {
+    argument("pos", Vec3Argument.vec3()) {
+        redirect(executeNode) { context ->
+            context.source
+                .withPosition(/*new pos*/)
+        }
+    }
+}
+
+literal("in") {
+    argument("dimension", DimensionArgument.dimension()) {
+        redirect(executeNode) { context ->
+            context.source.withLevel(/*new level*/)
+        }
+    }
+}
+```
+
+After the argument is parsed, the source is replaced with a new source pointing to the new position or dimension —
+then parsing loops back to `executeNode`, allowing further modifiers or a final `run` to follow.
+
+---
+
+### fork
+
+`fork` routes execution to a target node, but unlike `redirect` it can produce **multiple sources** from a single
+incoming source. Brigadier runs the remaining command tree once for each source in the returned collection.
+
+```kotlin
+fun <S> KtCommandBuilder<S, *>.fork(target: CommandNode<S>, modifier: RedirectModifier<S>)
+```
+
+This is how `/execute as <targets>` works: one command execution fans out into one execution per matched entity.
+
+#### Fork — One Source to Many
+
+```kotlin
+literal("as") {
+    argument("targets", EntityArgument.entities()) {
+        fork(executeNode) { context ->
+            val targets = ...
+            targets.map { context.source.withEntity(it) }
+        }
+    }
+}
+
+literal("at") {
+    argument("targets", EntityArgument.entities()) {
+        fork(executeNode) { context ->
+            val targets = ...
+            targets.map { context.source.withPosition(it.position()) }
+        }
+    }
+}
+```
+
+If the modifier returns an **empty list**, execution is silently canceled — no children of the target node are
+visited. This is how `fork`-based conditionals work: returning the source continues, returning empty aborts.
+
+#### Fork — Conditional Branching
+
+Returning the source or an empty list makes `fork` act as a conditional gate:
+
+```kotlin
+literal("if") {
+    literal("entity") {
+        argument("entities", EntityArgument.entities()) {
+            fork(executeNode) { context ->
+                val target = ...
+                val condition = ...
+                if (condition.matches(target)) {
+                    listOf(context.source.withEntity(target))
+                } else {
+                    emptyList()
+                }
+            }
+        }
+    }
+}
+```
+
+---
+
+### forward
+
+`forward` is the low-level primitive that both `redirect` and `fork` build on. It accepts a `RedirectModifier` and an
+explicit `fork` boolean that controls how Brigadier treats the result.
+
+```kotlin
+fun <S> KtCommandBuilder<S, *>.forward(target: CommandNode<S>, fork: Boolean, modifier: RedirectModifier<S>)
+```
+
+| `fork` value | Behaviour                                                                 |
+|--------------|---------------------------------------------------------------------------|
+| `false`      | Expects exactly one source — behaves like `redirect` with a full modifier |
+| `true`       | Expects zero or more sources — behaves like `fork`                        |
+
+In most cases `redirect` and `fork` are the right choice. Use `forward` only when you need precise control over the
+fork flag that the higher-level functions don't expose — for example when wrapping a custom `RedirectModifier`
+implementation.
+
+```kotlin
+argument("targets", EntityArgument.entities()) {
+    forward(
+        target = executeNode,
+        fork = true
+    ) { context ->
+        listOf(...)
+    }
+}
+```
+
+---
+
+### Guards and Redirects
+
+Guards and redirects operate at **different phases** of Brigadier's execution model, and their interaction has
+important consequences.
+
+#### Guards do NOT run at the redirect node
+
+When a node redirects to a target, Guards attached to that **redirect node** are **not executed**. Execution arrives
+at the redirect node during parsing and immediately jumps to the target — there is no execution phase at the
+redirect node itself where Guards could run.
+
+Guards only run during the **execution phase**, which begins at the node where the final command handler lives.
+
+```kotlin
+val executeNode = dispatcher.register(
+    command<CommandSourceStack>("execute") {
+        requires { hasPermission(LEVEL_GAMEMASTERS) }
+    }
+)
+
+dispatcher.register(
+    command<CommandSourceStack>("execute") {
+        requires { hasPermission(LEVEL_GAMEMASTERS) }
+
+        literal("as") {
+            argument("targets", EntityArgument.entities()) {
+
+                // A guard placed here will NEVER run —
+                // this node immediately redirects and has no execute handler.
+                guard {
+                    continueCommand()
+                }
+
+                fork(executeNode) { context ->
+                    ...
+                }
+            }
+        }
+
+        literal("run") {
+            redirect(dispatcher.root)
+        }
+
+        // Guards placed here DO run — this is the execution entry point
+        // when the chain eventually reaches a concrete command after "run".
+    }
+)
+```
+
+#### Guards DO run at the redirect target
+
+When execution reaches the **target** of a redirect through normal command dispatch (i.e. when a command is typed that
+resolves through that node), Guards on the target node and its ancestors run as usual.
+
+In the pattern above, after `/execute as @a run say hello` is fully parsed and `say hello` is dispatched, the Guards
+on the `say` node run normally. The redirect only affected how the source was modified during parsing — not whether
+Guards on the final command run.
+
+**Summary:**
+
+| Location                                       | Guards run?                              |
+|------------------------------------------------|------------------------------------------|
+| Node that calls `redirect(...)` or `fork(...)` | ✗ Never — no execution phase here        |
+| Target node of the redirect                    | ✓ Yes — when reached via normal dispatch |
+| Nodes after `run` / dispatcher root            | ✓ Yes — normal execution flow            |
+
+This means Guards are the right place to put validation that applies to the **final command being run**, not to the
+modifier chain itself. Modifier validation (e.g. "does this entity exist?") belongs in the `fork` or `redirect`
+lambda directly.
 
 ---
 
@@ -980,23 +1300,27 @@ When a command is executed, the following happens in order:
    ↓
 3. requires Predicates (if any)
    ↓
-4. Guards Execute (root → leaf order)
+4. Redirect / Fork resolution (if any)
+   │  Guards do NOT run here
+   ↓
+5. Guards Execute (root → leaf order)
    ↓
    ├─ Guard 1 at root
    ├─ Guard 2 at intermediate node
    └─ Guard 3 at leaf node
    ↓
-5. All Guards returned GuardResult.Continue?
+6. All Guards returned GuardResult.Continue?
    ├─ YES → Execute Handler
    └─ NO  → Stop (return Guard's abort result)
    ↓
-6. Return Result
+7. Return Result
 ```
 
 **Clear Separation of Concerns:**
 
 - **Parsing** → Brigadier handles syntax and structure
 - **Access Control** → `requires` handles node-level permissions
+- **Routing** → `redirect`, `fork`, `forward` handle execution flow
 - **Validation & Transformation** → Guards handle business validation
 - **Business Logic** → `execute` handles core functionality
 
@@ -1054,6 +1378,8 @@ that embraces Kotlin idioms while preserving Brigadier's power and performance.
 ✅ **Middleware Guards** — Centralized validation and transformation  
 ✅ **Domain Transformation** — Work with domain objects, not primitives  
 ✅ **Mutable Context** — Safe argument injection via `setArgument` or `ref.set`  
+✅ **Redirect / Fork / Forward** — Full Brigadier routing support with clean DSL  
+✅ **Node Merging** — Self-reference pattern for looping command chains  
 ✅ **Suggestions DSL** — Simplified completion handling  
 ✅ **Full Compatibility** — Drop-in **enhancement** for Brigadier
 
