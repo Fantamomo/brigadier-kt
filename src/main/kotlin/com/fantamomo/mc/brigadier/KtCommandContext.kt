@@ -30,7 +30,7 @@ import kotlin.reflect.KClass
 class KtCommandContext<S>(
     source: S?,
     input: String?,
-    arguments: Map<String, ParsedArgument<S, *>>,
+    private val arguments: Map<String, ParsedArgument<S, *>>,
     command: Command<S>?,
     rootNode: CommandNode<S>?,
     nodes: List<ParsedCommandNode<S>>?,
@@ -57,8 +57,8 @@ class KtCommandContext<S>(
         }
 
         private fun <S> of0(other: CommandContext<S>) = other.run {
-            KtCommandContext<S>(
-                source, input, arguments,
+            KtCommandContext(
+                source, input, (other as? KtCommandContext<S>)?.arguments ?: arguments,
                 command, rootNode, nodes,
                 range, child,
                 redirectModifier,
