@@ -1,5 +1,7 @@
 package com.fantamomo.mc.brigadier
 
+import com.fantamomo.mc.brigadier.internal.GuardList
+import com.mojang.brigadier.Command
 import com.mojang.brigadier.context.CommandContext
 
 /**
@@ -27,12 +29,38 @@ fun <S> KtCommandBuilder<S, *>.execute(runGuards: Boolean = true, block: @KtComm
         builder.executes(block)
         return
     }
-    val guards = guards
-    builder.executes { ctx ->
-        if (!guards.hasCustomGuard()) return@executes block(ctx)
+    val command = GuardedCommand(guards, block)
+    builder.executes(command)
+}
+
+/**
+ * @author Fantamomo
+ * @since 1.5-SNAPSHOT
+ */
+private class GuardedCommand<S>(
+    private val guards: GuardList<S>,
+    private val block: CommandContext<S>.() -> Int
+) : Command<S> {
+    private val resolvedGuards: Array<GuardList<S>>? by lazy {
+        val end = guards
+        val nodes = ArrayDeque<GuardList<S>>()
+        var current: GuardList<S> = guards
+        while (true) {
+            nodes.addFirst(current)
+            current = if (current is GuardList.Next) current.previous else break
+        }
+        if (!end.runOnSameNode) nodes.removeLast()
+        val arr = nodes.toTypedArray()
+        if (arr.isEmpty()) null else arr
+    }
+
+    override fun run(ctx: CommandContext<S>): Int {
+        val nodes = resolvedGuards ?: return block(ctx)
         val context = KtCommandContext.of(ctx)
-        val result = guards.execute(context)
-        if (result is GuardResult.Abort) return@executes result.result
-        block(context)
+        for (node in nodes) {
+            val result = node.value.runGuard(context)
+            if (result is GuardResult.Abort) return result.result
+        }
+        return block(context)
     }
 }
