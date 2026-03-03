@@ -126,6 +126,30 @@ class KtCommandContext<S>(
     fun resetArgument(name: String) {
         overriddenArgs.remove(name)
     }
+
+    /**
+     * Checks if the specified argument exists within the command context.
+     *
+     * This method determines the existence of an argument by inspecting either the overridden
+     * arguments or the base arguments present in the context. The presence is evaluated
+     * based on the following conditions:
+     * - If the argument is marked as removed, it does not exist.
+     * - If the argument is null but explicitly specified, it exists.
+     * - If the argument is absent in both overridden and base arguments, it does not exist.
+     *
+     * @param name The name of the argument to check for existence.
+     * @return `true` if the argument exists; `false` otherwise.
+     *
+     * @since 1.5-SNAPSHOT
+     */
+    fun argumentExist(name: String): Boolean {
+        return when (overriddenArgs[name]) {
+            REMOVED -> false
+            NULL -> true
+            null -> arguments.containsKey(name)
+            else -> true
+        }
+    }
 }
 
 /**
@@ -188,10 +212,13 @@ fun <T : Any> CommandContext<*>.arg(kclass: KClass<T>, name: String): T =
  * @author Fantamomo
  * @since 1.0-SNAPSHOT
  */
-fun <T : Any> CommandContext<*>.optionalArg(kclass: KClass<T>, name: String): T? = try {
-    arg(kclass, name)
-} catch (_: IllegalArgumentException) {
-    null
+fun <T : Any> CommandContext<*>.optionalArg(kclass: KClass<T>, name: String): T? {
+    if ((this as? KtCommandContext<*>)?.argumentExist(name) == false) return null
+    return try {
+        arg(kclass, name)
+    } catch (_: IllegalArgumentException) {
+        null
+    }
 }
 
 /**
