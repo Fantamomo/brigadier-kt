@@ -24,6 +24,7 @@ Kotlin-native command framework.
 - [Guards: The Middleware System](#guards-the-middleware-system)
     - [Understanding Guards](#understanding-guards)
     - [Basic Guard Usage](#basic-guard-usage)
+    - [The runOnSameNode Parameter](#the-runonsamenode-parameter)
     - [Argument Transformation](#argument-transformation)
     - [Disabling Guards](#disabling-guards)
     - [Mutable Command Context](#mutable-command-context)
@@ -454,6 +455,112 @@ command<CommandSource>("admin") {
 
 **Note:** For simple permission checks, a `requires` predicate is often more appropriate as it affects node visibility.
 Use guards when you need more complex logic or custom error handling.
+
+---
+
+### The `runOnSameNode` Parameter
+
+#### Signature
+
+```kotlin
+fun <S> KtCommandBuilder<S, *>.guard(
+    runOnSameNode: Boolean = true,
+    guard: KtCommandGuard<S>
+)
+```
+
+#### Default Behaviour (`runOnSameNode = true`)
+
+By default, a Guard runs for **every** execute block in its subtree — including any `execute` block defined directly
+on the **same node** where the Guard is declared.
+
+```kotlin
+command<Player>("test") {
+
+    guard { // runOnSameNode = true (default)
+        println("[Guard] Running")
+        continueCommand()
+    }
+
+    literal("hello") {
+        execute { /* Guard runs here */ SINGLE_SUCCESS }
+    }
+
+    execute { /* Guard also runs here */ SINGLE_SUCCESS }
+}
+```
+
+Running `/test` triggers the Guard before the `execute` block, just like running `/test hello` does.
+
+#### Opt-out: `runOnSameNode = false`
+
+When `runOnSameNode = false`, the Guard is **skipped** when the `execute` block on the **same node** is invoked.
+It still runs normally for all child nodes.
+
+```kotlin
+command<Player>("test") {
+
+    guard(false) { // will NOT run when /test itself is executed
+        println("[Global Guard] Executing command as ${source.name}")
+        GuardResult.Continue
+    }
+
+    literal("hello") {
+        execute { /* Guard runs here */ SINGLE_SUCCESS }
+    }
+
+    argument("level", IntegerArgumentType.integer(0, 100)) {
+        execute { /* Guard runs here */ SINGLE_SUCCESS }
+    }
+
+    execute {
+        // Guard does NOT run here
+        SINGLE_SUCCESS
+    }
+}
+```
+
+**Execution behaviour:**
+
+| Command       | Guard runs? | Reason                                                 |
+|---------------|-------------|--------------------------------------------------------|
+| `/test`       | No          | `execute` is on the same node; `runOnSameNode = false` |
+| `/test hello` | Yes         | Child node — `runOnSameNode` does not apply            |
+| `/test 42`    | Yes         | Child node — `runOnSameNode` does not apply            |
+
+#### When to Use `runOnSameNode = false`
+
+This option is useful when a Guard represents logic that is only meaningful for subcommands — for example, logging
+the specific subcommand used, resolving a resource that only subcommands need, or enforcing a requirement that does
+not apply to the base command itself.
+
+```kotlin
+command<Player>("stats") {
+
+    // Log which subcommand the player is using,
+    // but don't interfere when /stats is called with no arguments.
+    guard(false) {
+        println("Player ${source.name} used a stats subcommand")
+        continueCommand()
+    }
+
+    literal("kills") {
+        execute { /* Guard runs */ SINGLE_SUCCESS }
+    }
+
+    literal("deaths") {
+        execute { /* Guard runs */ SINGLE_SUCCESS }
+    }
+
+    execute {
+        // Guard does NOT run - shows summary without logging
+        println("Stats overview for ${source.name}")
+        SINGLE_SUCCESS
+    }
+}
+```
+
+---
 
 ### Argument Transformation
 
@@ -1304,6 +1411,8 @@ When a command is executed, the following happens in order:
    │  Guards do NOT run here
    ↓
 5. Guards Execute (root → leaf order)
+   │  runOnSameNode = false guards are skipped
+   │  if the execute block is on their own node
    ↓
    ├─ Guard 1 at root
    ├─ Guard 2 at intermediate node
@@ -1376,6 +1485,7 @@ that embraces Kotlin idioms while preserving Brigadier's power and performance.
 ✅ **Type-Safe Arguments** — Reified generics eliminate boilerplate  
 ✅ **Argument References** — `argRef()` for raw access, `createArgRef<T>()` for typed domain objects  
 ✅ **Middleware Guards** — Centralized validation and transformation  
+✅ **`runOnSameNode` Control** — Fine-grained Guard scoping per node  
 ✅ **Domain Transformation** — Work with domain objects, not primitives  
 ✅ **Mutable Context** — Safe argument injection via `setArgument` or `ref.set`  
 ✅ **Redirect / Fork / Forward** — Full Brigadier routing support with clean DSL  
