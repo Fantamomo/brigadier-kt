@@ -2,6 +2,8 @@ package com.fantamomo.mc.brigadier
 
 import com.mojang.brigadier.arguments.ArgumentType
 import com.mojang.brigadier.context.CommandContext
+import com.mojang.brigadier.tree.ArgumentCommandNode
+import com.mojang.brigadier.tree.LiteralCommandNode
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
@@ -20,11 +22,13 @@ import kotlin.contracts.contract
  * @since 1.0-SNAPSHOT
  */
 @OptIn(ExperimentalContracts::class)
-inline fun <S> KtCommandBuilder<S, *>.literal(literal: String, block: KtLiteralCommandBuilder<S>.() -> Unit) {
+inline fun <S> KtCommandBuilder<S, *>.literal(literal: String, block: KtLiteralCommandBuilder<S>.() -> Unit): LiteralCommandNode<S> {
     contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
     val literalBuilder = KtLiteralCommandBuilder(literal, guards.next())
     literalBuilder.block()
-    builder.then(literalBuilder.build())
+    val commandNode = literalBuilder.build()
+    builder.then(commandNode)
+    return commandNode
 }
 
 /**
@@ -61,9 +65,11 @@ fun <S> KtCommandBuilder<S, *>.literalExecute(literal: String, runGuards: Boolea
  * @since 1.0-SNAPSHOT
  */
 @OptIn(ExperimentalContracts::class)
-inline fun <S, T> KtCommandBuilder<S, *>.argument(name: String, type: ArgumentType<T>, block: KtArgumentCommandBuilder<S, T>.() -> Unit) {
+inline fun <S, T> KtCommandBuilder<S, *>.argument(name: String, type: ArgumentType<T>, block: KtArgumentCommandBuilder<S, T>.() -> Unit): ArgumentCommandNode<S, T> {
     contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
     val argumentBuilder = KtArgumentCommandBuilder(name, type, guards.next())
     argumentBuilder.block()
-    builder.then(argumentBuilder.build())
+    val commandNode = argumentBuilder.build()
+    builder.then(commandNode)
+    return commandNode
 }
