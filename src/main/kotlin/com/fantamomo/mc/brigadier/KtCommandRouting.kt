@@ -93,7 +93,7 @@ internal object KtCommandRoutingStorage {
     val NULL = Symbol("NULL")
 
     private class RoutingStorage {
-        var data: MutableMap<Int, MutableMap<KtRoutingKey<*, *>, Any?>> = mutableMapOf()
+        var data: MutableList<MutableMap<KtRoutingKey<*, *>, Any?>> = mutableListOf()
         var executed: Int = 0
         var routed: Int = 0
         var currentIndex: Int = 0
@@ -106,7 +106,7 @@ internal object KtCommandRoutingStorage {
         var lastCommandPosition: StringRange = StringRange.at(0)
         var executionHash: Int? = null
 
-        private var maxIndexed: Int = 0
+        var maxIndexed: Int = 0
 
         fun canBeRemoved() = executed > maxIndexed
     }
@@ -136,7 +136,13 @@ internal object KtCommandRoutingStorage {
             data = RoutingStorage()
             storage.set(data)
         }
-        val contextData = data.data.computeIfAbsent(context.index) { mutableMapOf() }
+        val contextData = if (data.data.size == context.index) {
+            val newData = mutableMapOf<KtRoutingKey<*, *>, Any?>()
+            data.data.add(newData)
+            newData
+        } else {
+            data.data[context.index]
+        }
         contextData[key] = value ?: NULL
     }
 
@@ -166,12 +172,19 @@ internal object KtCommandRoutingStorage {
 
     @Suppress("UNCHECKED_CAST")
     fun <T> load(context: KtCommandRoutingContext<*>, key: KtRoutingKey<*, T>): T? {
-        val value = storage.get()?.data?.get(context.index)?.get(key)
+        val value = storage.get()?.data?.getOrNull(context.index)?.get(key)
         return (if (value === NULL) null else value) as? T
     }
 
     fun isPresent(context: KtCommandRoutingContext<*>, key: KtRoutingKey<*, *>): Boolean =
-        storage.get()?.data?.get(context.index)?.contains(key) == true
+        storage.get()?.data?.getOrNull(context.index)?.contains(key) == true
+
+    fun onException(context: KtCommandRoutingContext<*>) {
+        val value = storage.get() ?: return
+        value.data.removeAt(context.index)
+        value.currentIndex--
+        value.maxIndexed--
+    }
 }
 
 /**
@@ -228,6 +241,10 @@ class KtCommandRoutingContext<S> internal constructor(val context: CommandContex
     internal fun close() {
         closed = true
     }
+
+    internal fun onException() {
+        KtCommandRoutingStorage.onException(this)
+    }
 }
 
 /**
@@ -257,6 +274,9 @@ fun <S> KtCommandBuilder<S, *>.routing(target: CommandNode<S>, block: KtCommandR
         val routingContext = KtCommandRoutingContext(context)
         try {
             routingContext.block()
+        } catch (e: Throwable) {
+            routingContext.onException()
+            throw e
         } finally {
             routingContext.close()
         }
