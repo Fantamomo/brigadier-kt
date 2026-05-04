@@ -127,7 +127,7 @@ internal object KtCommandRoutingStorage {
             return null
         }
         data.executed++
-        return data.data[data.executed - 1]?.toMutableMap()
+        return data.data.getOrNull(data.executed - 1)?.toMutableMap()
     }
 
     fun <T> store(context: KtCommandRoutingContext<*>, key: KtRoutingKey<*, T>, value: T) {
