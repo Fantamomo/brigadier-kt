@@ -1108,6 +1108,43 @@ argument("targets", EntityArgument.entities()) {
 
 ---
 
+### Important Note on Redirect Execution Context
+
+When using redirects that loop back to a parent node (such as the common self-reference pattern), it is important to understand **where execution actually occurs**.
+
+For example, consider a command like:
+
+```
+game select @a
+```
+
+If `select` uses a `redirect` (or `fork`) that routes execution back to the `game` node after resolving `@a`, the execution context changes:
+
+* After `@a` is parsed, Brigadier **continues execution from the redirected node (`game`) using the modified source(s)**.
+* However, the **execution node is considered to be the last successfully parsed node before the redirect completes** in this case, the `@a` argument node.
+
+**Key consequence:**
+
+If you run:
+
+```
+game select @a
+```
+
+* The `execute` block defined under `game` **will NOT be executed**.
+* Instead, the `execute` block (if any) associated with the `@a` argument node is used.
+
+This happens because Brigadier executes the command at the **final node reached during parsing**, and a redirect does not "rewind" execution to the parent node — it only changes where parsing continues.
+
+**In short:**
+
+* Redirects affect **parsing flow**, not **execution ownership**.
+* The command is executed at the **last parsed node**, not necessarily the node you redirected to.
+
+This distinction is crucial when designing command trees that rely on chaining, looping, or context modifiers.
+
+---
+
 ### Guards and Redirects
 
 Guards and redirects operate at **different phases** of Brigadier's execution model, and their interaction has
@@ -1275,7 +1312,7 @@ Here’s the important part:
 ##### 1. Define a routing key
 
 ```kotlin
-val GAME_KEY = KtRoutingKey.create<Player, String>("game") { ctx ->
+val GAME_KEY = createDynamicRoutingKey<Player, String>("game") { ctx ->
     GameService.getGameFor(ctx.source)
 }
 ```
@@ -1397,7 +1434,7 @@ You can model this as:
 Define a key:
 
 ```kotlin
-val FORCE_KEY = KtRoutingKey.static<CommandSource, Boolean>("force", false)
+val FORCE_KEY = createStaticRoutingKey<CommandSource, Boolean>("force", false)
 ```
 
 Add a routing node:
