@@ -1397,7 +1397,7 @@ You can model this as:
 Define a key:
 
 ```kotlin
-val FORCE_KEY = KtRoutingKey.create<CommandSource, Boolean>("force") { false }
+val FORCE_KEY = KtRoutingKey.static<CommandSource, Boolean>("force", false)
 ```
 
 Add a routing node:
@@ -1450,6 +1450,52 @@ CommandContext
 * `S` stays untouched
 * routing values carry additional state
 * values can be overridden during redirects
+
+---
+
+### Limitations of Routing
+
+Routing is designed to work with a **stable execution context**. Because routing values are stored separately from the command source (`S`), there is an important constraint:
+
+> After a routing step, the number of sources must remain unchanged.
+
+This means:
+
+* **Redirects are safe**: they preserve the same number of sources
+* **Operations that change the number of sources are not supported after routing**
+
+Examples of problematic operations:
+
+* forks (multiple execution paths with different sources)
+* any mechanism that **expands or shrinks the source set**
+
+These can lead to **undefined or unpredictable behavior**, because routing assumes a single, consistent execution context.
+
+---
+
+#### What *is* supported
+
+You can freely use forks and similar mechanics **before the first routing node**.
+
+Example:
+
+```
+/execute as @a run bedwars game ABCD start
+```
+
+This works because:
+
+1. `/execute as @a` creates multiple sources
+2. Each source is then handled independently
+3. Routing is applied afterward within each stable execution context
+
+This pattern is **fully supported and safe**.
+
+---
+
+#### Future Outlook
+
+Support for forks and other source-altering operations **after routing** may be added in the future, but is currently not implemented.
 
 ---
 
