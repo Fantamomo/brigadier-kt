@@ -26,7 +26,8 @@ import com.mojang.brigadier.context.CommandContext
  */
 fun <S> KtCommandBuilder<S, *>.execute(runGuards: Boolean = true, block: @KtCommandDsl CommandContext<S>.() -> Int) {
     if (!runGuards) {
-        builder.executes(block)
+        val command = RoutingCommand(block)
+        builder.executes(command)
         return
     }
     val command = GuardedCommand(guards, block)
@@ -34,12 +35,38 @@ fun <S> KtCommandBuilder<S, *>.execute(runGuards: Boolean = true, block: @KtComm
 }
 
 /**
+ * A command implementation that applies routing context before execution.
+ *
+ * If routing data is present, the incoming [CommandContext] is wrapped into
+ * a [KtCommandContext] so that routing values can be accessed.
+ *
+ * @author Fantamomo
+ * @since 1.6-SNAPSHOT
+ */
+private class RoutingCommand<S>(private val block: CommandContext<S>.() -> Int) : Command<S> {
+    override fun run(ctx: CommandContext<S>): Int {
+        val routingContext = KtCommandRoutingStorage.getForExecution(ctx) ?: return block(ctx)
+
+        @Suppress("UNCHECKED_CAST")
+        val context = KtCommandContext.of(ctx, routingContext as MutableMap<KtRoutingKey<S, *>, Any?>?)
+        return block(context)
+    }
+}
+
+/**
+ * A command implementation that executes Guards before the actual command logic.
+ *
+ * If routing data is present, the context is wrapped into [KtCommandContext]
+ * so both routing values and argument mutations are available.
+ *
+ * Guards are executed from root to leaf before invoking the command block.
+ *
  * @author Fantamomo
  * @since 1.5-SNAPSHOT
  */
 private class GuardedCommand<S>(
     private val guards: GuardList<S>,
-    private val block: CommandContext<S>.() -> Int
+    private val block: CommandContext<S>.() -> Int,
 ) : Command<S> {
     private val resolvedGuards: Array<GuardList<S>>? by lazy {
         val end = guards
@@ -55,9 +82,13 @@ private class GuardedCommand<S>(
     }
 
     override fun run(ctx: CommandContext<S>): Int {
-        val nodes = resolvedGuards ?: return block(ctx)
-        val context = KtCommandContext.of(ctx)
-        for (node in nodes) {
+        val routingContext = KtCommandRoutingStorage.getForExecution(ctx)
+        val resolvedGuards = resolvedGuards
+        if (resolvedGuards == null && routingContext == null) return block(ctx)
+        @Suppress("UNCHECKED_CAST")
+        val context = KtCommandContext.of(ctx, routingContext as MutableMap<KtRoutingKey<S, *>, Any?>?)
+        if (resolvedGuards == null) return block(context)
+        for (node in resolvedGuards) {
             val result = node.value.runGuard(context)
             if (result is GuardResult.Abort) return result.result
         }
