@@ -37,7 +37,8 @@ class KtCommandContext<S>(
     range: StringRange?,
     child: CommandContext<S>?,
     modifier: RedirectModifier<S>?,
-    forks: Boolean
+    forks: Boolean,
+    private val routingContext: MutableMap<KtRoutingKey<S, *>, Any?>
 ) : CommandContext<S>(
     source, input, arguments,
     command, rootNode, nodes,
@@ -51,18 +52,19 @@ class KtCommandContext<S>(
         private val argumentField =
             CommandContext::class.java.getDeclaredField("arguments").apply { isAccessible = true }
 
-        fun <S> of(other: CommandContext<S>): KtCommandContext<S> {
-            if (other is KtCommandContext<S>) return other.clone()
-            return of0(other)
+        fun <S> of(other: CommandContext<S>, routingContext: MutableMap<KtRoutingKey<S, *>, Any?>?): KtCommandContext<S> {
+            if (other is KtCommandContext<S>) return other.clone(routingContext)
+            return of0(other, routingContext)
         }
 
-        private fun <S> of0(other: CommandContext<S>) = other.run {
+        private fun <S> of0(other: CommandContext<S>, routingContext: MutableMap<KtRoutingKey<S, *>, Any?>?) = other.run {
             KtCommandContext(
                 source, input, (other as? KtCommandContext<S>)?.arguments ?: arguments,
                 command, rootNode, nodes,
                 range, child,
                 redirectModifier,
-                isForked
+                isForked,
+                routingContext ?: mutableMapOf()
             )
         }
 
@@ -71,8 +73,10 @@ class KtCommandContext<S>(
             get() = argumentField.get(this) as Map<String, ParsedArgument<S, *>>
     }
 
-    fun clone(): KtCommandContext<S> {
-        val clone = of0(this)
+    fun clone() = clone(routingContext = routingContext)
+
+    internal fun clone(routingContext: MutableMap<KtRoutingKey<S, *>, Any?>?): KtCommandContext<S> {
+        val clone = of0(this, routingContext)
         clone.overriddenArgs.putAll(overriddenArgs)
         return clone
     }
@@ -149,6 +153,27 @@ class KtCommandContext<S>(
             null -> arguments.containsKey(name)
             else -> true
         }
+    }
+
+    /**
+     * Resolves a routing value for the given [key].
+     *
+     * Resolution order:
+     * 1. Previously injected routing value
+     * 2. Fallback value from [KtRoutingKey.provide]
+     *
+     * If [KtRoutingKey.cacheValue] is enabled, the fallback result is stored
+     * for later lookups within the same execution.
+     */
+    @Suppress("UNCHECKED_CAST")
+    internal fun <T> getContextValue(key: KtRoutingKey<S, T>): T {
+        val existingValue = routingContext[key]
+        if (existingValue != null) {
+            return if (existingValue === KtCommandRoutingStorage.NULL) null as T else existingValue as T
+        }
+        val value = key.provide(this)
+        if (key.cacheValue) routingContext[key] = value
+        return value
     }
 }
 
@@ -254,3 +279,20 @@ inline fun <reified T : Any> CommandContext<*>.arg(name: String): T = arg(T::cla
  */
 @Suppress("unused")
 inline fun <reified T : Any> CommandContext<*>.optionalArg(name: String): T? = optionalArg(T::class, name)
+
+/**
+ * Retrieves a routing-scoped value associated with the specified [KtRoutingKey].
+ *
+ * If a value was provided via [routing], it is returned.
+ * Otherwise, the key's fallback value is used.
+ *
+ * @param key The routing key.
+ * @return The resolved value.
+ *
+ * @author Fantamomo
+ * @since 1.6-SNAPSHOT
+ */
+fun <S, T> CommandContext<S>.context(key: KtRoutingKey<S, T>): T {
+    if (this !is KtCommandContext<S>) return key.provide(this)
+    return getContextValue(key)
+}

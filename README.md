@@ -35,6 +35,13 @@ Kotlin-native command framework.
     - [fork](#fork)
     - [forward](#forward)
     - [Guards and Redirects](#guards-and-redirects)
+- [Routing](#routing-context-aware-execution-without-modifying-s)
+    - [The Idea](#the-core-idea)
+    - [Example: BedWars Command Context](#example-bedwars-command-context)
+    - [The Routing Solution](#the-routing-solution)
+    - [Flags](#second-use-case-flags)
+    - [Mental Model](#mental-model)
+    - [Summary](#summary-of-routing)
 - [Advanced Features](#advanced-features)
     - [Suggestions DSL](#suggestions-dsl)
     - [Access Control: requires vs Guards](#access-control-requires-vs-guards)
@@ -1079,10 +1086,10 @@ explicit `fork` boolean that controls how Brigadier treats the result.
 fun <S> KtCommandBuilder<S, *>.forward(target: CommandNode<S>, fork: Boolean, modifier: RedirectModifier<S>)
 ```
 
-| `fork` value | Behaviour                                                                 |
-|--------------|---------------------------------------------------------------------------|
-| `false`      | Expects exactly one source — behaves like `redirect` with a full modifier |
-| `true`       | Expects zero or more sources — behaves like `fork`                        |
+| `fork` value | Behaviour                                                                                                                      |
+|--------------|--------------------------------------------------------------------------------------------------------------------------------|
+| `false`      | the returned int is the sum of all the commands that have been executed, also if an exception is thrown it will not be catched |
+| `true`       | the returned int is the cound of how many commands have been executed successfully, exceptions will be ignored                 |
 
 In most cases `redirect` and `fork` are the right choice. Use `forward` only when you need precise control over the
 fork flag that the higher-level functions don't expose — for example when wrapping a custom `RedirectModifier`
@@ -1098,6 +1105,43 @@ argument("targets", EntityArgument.entities()) {
     }
 }
 ```
+
+---
+
+### Important Note on Redirect Execution Context
+
+When using redirects that loop back to a parent node (such as the common self-reference pattern), it is important to understand **where execution actually occurs**.
+
+For example, consider a command like:
+
+```
+game select @a
+```
+
+If `select` uses a `redirect` (or `fork`) that routes execution back to the `game` node after resolving `@a`, the execution context changes:
+
+* After `@a` is parsed, Brigadier **continues execution from the redirected node (`game`) using the modified source(s)**.
+* However, the **execution node is considered to be the last successfully parsed node before the redirect completes** in this case, the `@a` argument node.
+
+**Key consequence:**
+
+If you run:
+
+```
+game select @a
+```
+
+* The `execute` block defined under `game` **will NOT be executed**.
+* Instead, the `execute` block (if any) associated with the `@a` argument node is used.
+
+This happens because Brigadier executes the command at the **final node reached during parsing**, and a redirect does not "rewind" execution to the parent node — it only changes where parsing continues.
+
+**In short:**
+
+* Redirects affect **parsing flow**, not **execution ownership**.
+* The command is executed at the **last parsed node**, not necessarily the node you redirected to.
+
+This distinction is crucial when designing command trees that rely on chaining, looping, or context modifiers.
 
 ---
 
@@ -1170,6 +1214,351 @@ Guards on the final command run.
 This means Guards are the right place to put validation that applies to the **final command being run**, not to the
 modifier chain itself. Modifier validation (e.g. "does this entity exist?") belongs in the `fork` or `redirect`
 lambda directly.
+
+---
+
+## Routing: Context-Aware Execution Without Modifying `S`
+
+Routing is a brigadier-kt feature that allows you to **change execution context without changing the command source (`S`)**.
+
+In vanilla Brigadier (and Minecraft), context changes like `/execute as`, `/execute at`, or `/execute in` work because **Minecraft fully controls the source type** and can create modified copies of it.
+
+In most real environments (Paper, Fabric, custom systems), this is **not possible**:
+
+* You do not own `S`
+* You cannot safely mutate or extend it
+* You cannot attach additional execution state to it
+
+This creates a limitation:
+
+> You cannot carry custom context through redirects.
+
+Routing solves exactly this problem.
+
+---
+
+### The Core Idea
+
+Routing allows you to:
+
+* redirect execution (like normal Brigadier)
+* **attach additional typed context during that redirect**
+
+This context is stored separately from `S` and can be accessed later during execution.
+
+---
+
+### Example: BedWars Command Context
+
+#### The Problem
+
+You have a command like:
+
+```
+/bedwars start
+/bedwars invite <player>
+```
+
+These commands operate on:
+
+> the game the sender is currently in
+
+So internally, you might do:
+
+```kotlin
+val game = GameService.getGameFor(source)
+```
+
+---
+
+#### The Limitation
+
+What if you want to execute a command for a **different game**?
+
+Without routing, your only option would be:
+
+```
+/bedwars start <game>
+/bedwars invite <player> <game>
+```
+
+Problems:
+
+* Argument duplication everywhere
+* Polluted command signatures
+* Repeated resolution logic
+* Worse UX
+
+---
+
+### The Routing Solution
+
+Instead of adding arguments everywhere, you introduce a **routing entry point**:
+
+```
+/bedwars game <code> start
+/bedwars game <code> invite <player>
+```
+
+Here’s the important part:
+
+* `game <code>` **redirects back to the base command**
+* but **injects a new execution context**
+
+---
+
+#### How It Works
+
+##### 1. Define a routing key
+
+```kotlin
+val GAME_KEY = createDynamicRoutingKey<Player, String>("game") { ctx ->
+    GameService.getGameFor(ctx.source)
+}
+```
+
+This defines:
+
+* a key (`GAME_KEY`)
+* a type (`String`)
+* a fallback → *“player's current game”*
+
+---
+
+##### 2. Use routing to override it
+
+```kotlin
+literal("game") {
+    argument("code", StringArgumentType.word()) {
+
+        routing(baseNode) {
+            set(GAME_KEY, context.arg("code"))
+        }
+    }
+}
+```
+
+This does two things:
+
+1. Redirects execution back to `/bedwars`
+2. Overrides `GAME_KEY` with the provided code
+
+---
+
+##### 3. Use the context in commands
+
+```kotlin
+literal("start") {
+    execute {
+        val game = context(GAME_KEY)
+        GameService.startGame(game)
+        SINGLE_SUCCESS
+    }
+}
+```
+
+---
+
+#### What Happens at Runtime
+
+##### Without routing:
+
+```
+/bedwars start
+```
+
+→ `context(GAME_KEY)`
+→ fallback → *player's current game*
+
+---
+
+##### With routing:
+
+```
+/bedwars game ABCD start
+```
+
+Flow:
+
+1. `game ABCD` is parsed
+2. Routing runs:
+
+   ```
+   GAME_KEY = "ABCD"
+   ```
+3. Execution redirects to `/bedwars`
+4. `start` executes
+5. `context(GAME_KEY)` now returns `"ABCD"`
+
+---
+
+#### Key Insight
+
+> Commands like `start` and `invite` **do not know** where the game came from.
+
+They simply do:
+
+```kotlin
+context(GAME_KEY)
+```
+
+Routing decides whether that value comes from:
+
+* the fallback (player’s current game)
+* or an overridden value (via `/game <code>`)
+
+---
+
+### Second Use Case: Flags
+
+Routing is not limited to complex objects — it also works for simple flags.
+
+#### Example: Command Flags
+
+Instead of:
+
+```
+/delete <file> --force
+```
+
+You can model this as:
+
+```
+/delete force <file>
+```
+
+---
+
+#### Implementation
+
+Define a key:
+
+```kotlin
+val FORCE_KEY = createStaticRoutingKey<CommandSource, Boolean>("force", false)
+```
+
+Add a routing node:
+
+```kotlin
+literal("force") {
+    routing(baseNode) {
+        set(FORCE_KEY, true)
+    }
+}
+```
+
+---
+
+#### Usage
+
+```kotlin
+execute {
+    val force = context(FORCE_KEY)
+    if (force) {
+        println("Force enabled")
+    }
+}
+```
+
+---
+
+#### Result
+
+```
+/delete file.txt        → force = false
+/delete force file.txt  → force = true
+```
+
+No extra arguments needed. No parsing duplication.
+
+---
+
+### Mental Model
+
+Routing extends the execution context:
+
+```
+CommandContext
+ ├── source (S)
+ ├── parsed arguments
+ └── routing values (KtRoutingKey → value)
+```
+
+* `S` stays untouched
+* routing values carry additional state
+* values can be overridden during redirects
+
+---
+
+### Limitations of Routing
+
+Routing is designed to work with a **stable execution context**. Because routing values are stored separately from the command source (`S`), there is an important constraint:
+
+> After a routing step, the number of sources must remain unchanged.
+
+This means:
+
+* **Redirects are safe**: they preserve the same number of sources
+* **Operations that change the number of sources are not supported after routing**
+
+Examples of problematic operations:
+
+* forks (multiple execution paths with different sources)
+* any mechanism that **expands or shrinks the source set**
+
+These can lead to **undefined or unpredictable behavior**, because routing assumes a single, consistent execution context.
+
+---
+
+#### What *is* supported
+
+You can freely use forks and similar mechanics **before the first routing node**.
+
+Example:
+
+```
+/execute as @a run bedwars game ABCD start
+```
+
+This works because:
+
+1. `/execute as @a` creates multiple sources
+2. Each source is then handled independently
+3. Routing is applied afterward within each stable execution context
+
+This pattern is **fully supported and safe**.
+
+---
+
+#### Future Outlook
+
+Support for forks and other source-altering operations **after routing** may be added in the future, but is currently not implemented.
+
+---
+
+### Summary of Routing
+
+Routing exists because:
+
+> In most environments, you cannot modify the command source — but you still need dynamic execution context.
+
+It allows you to:
+
+* inject context during redirects
+* override fallback values dynamically
+* avoid argument duplication
+* build clean, composable command systems
+
+Typical use cases:
+
+* game/session context (`/bedwars game <code>`)
+* flags (`force`, `recursive`, etc.)
+* execution modifiers (similar to `/execute`)
+
+In short:
+
+> **Redirect controls the flow.**
+> **Routing controls the context.**
 
 ---
 

@@ -106,3 +106,22 @@ inline fun <S, reified T : Any> KtArgumentCommandBuilder<S, T>.argRef(): KtArgum
  */
 fun <S, T> KtArgumentCommandBuilder<S, *>.createArgRef(name: String, clazz: KClass<T & Any>): KtArgumentRef<S, T> =
     KtArgumentRef(name, clazz)
+
+/**
+ * Creates a reference to a named argument with a specified type.
+ *
+ * This method is used to generate a `KtArgumentRef` instance, which represents
+ * a reference to a named argument in a command context. It associates the
+ * argument's name with its type, ensuring type-safety when handling command
+ * arguments.
+ *
+ * @param name The name of the argument.
+ * @param clazz The Kotlin class type of the argument's value.
+ *              It must be a non-null type (`T & Any`).
+ * @return A `KtArgumentRef` instance representing the argument reference.
+ *
+ * @author Fantamomo
+ * @since 1.6-SNAPSHOT
+ */
+fun <S, T> createArgRef(name: String, clazz: KClass<T & Any>): KtArgumentRef<S, T> =
+    KtArgumentRef(name, clazz)
