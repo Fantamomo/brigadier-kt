@@ -160,10 +160,10 @@ class KtCommandContext<S>(
      *
      * Resolution order:
      * 1. Previously injected routing value
-     * 2. Fallback value from [KtRoutingKey.fallbackValue]
+     * 2. Fallback value from [KtRoutingKey.provide]
      *
      * If [KtRoutingKey.cacheValue] is enabled, the fallback result is stored
-     * for subsequent lookups within the same execution.
+     * for later lookups within the same execution.
      */
     @Suppress("UNCHECKED_CAST")
     internal fun <T> getContextValue(key: KtRoutingKey<S, T>): T {
@@ -171,7 +171,7 @@ class KtCommandContext<S>(
         if (existingValue != null) {
             return if (existingValue === KtCommandRoutingStorage.NULL) null as T else existingValue as T
         }
-        val value = key.fallbackValue(this)
+        val value = key.provide(this)
         if (key.cacheValue) routingContext[key] = value
         return value
     }
@@ -293,6 +293,6 @@ inline fun <reified T : Any> CommandContext<*>.optionalArg(name: String): T? = o
  * @since 1.6-SNAPSHOT
  */
 fun <S, T> CommandContext<S>.context(key: KtRoutingKey<S, T>): T {
-    if (this !is KtCommandContext<S>) return key.fallbackValue(this)
+    if (this !is KtCommandContext<S>) return key.provide(this)
     return getContextValue(key)
 }
